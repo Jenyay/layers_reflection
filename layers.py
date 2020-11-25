@@ -5,7 +5,7 @@ import math
 import cmath
 
 
-class layerParams:
+class LayerParams:
     """Параметры одного слоя"""
 
     def __init__(self, eps=1.0, mu=1.0, sigma=0.0, thickness=0.0):
@@ -15,7 +15,7 @@ class layerParams:
         self.thickness = thickness
 
 
-class layersR:
+class LayersR:
     """Общие формулы для вычисления коэффициента отражения"""
 
     def getR(self, w, angle=0.0):
@@ -40,7 +40,7 @@ class layersR:
         for n in range(len(self.layers)):
             layer = self.layers[n]
 
-            currgamma = self.getGamma(w, layer.eps, 1.0, layer.sigma)
+            currgamma = self.getGamma(w, layer.eps, layer.mu, layer.sigma)
             self.gamma.append(currgamma)
 
             if n != 0:
@@ -92,7 +92,7 @@ class layersR:
         return cmath.exp((-2.0 * math.pi * d / wavelength) * (complex(a, b)))
 
 
-class layersRnNormal(layersR):
+class LayersRnNormal(LayersR):
     def __init__(self, layers):
         self.layers = layers
 
@@ -101,7 +101,7 @@ class layersRnNormal(layersR):
 
     def calcR(self, z1, z2):
         """Коэффициент отражения между двумя слоями"""
-        return(z2 - z1) / (z1 + z2)
+        return (z2 - z1) / (z1 + z2)
 
     def calcRBody(self, topLayer, w):
         """Расчет общего коэффициента отражения"""
@@ -113,15 +113,15 @@ class layersRnNormal(layersR):
             # Коэффициент отражения от всех более нижних слоев
             Rbottom = self. calcRBody(topLayer + 1, w)
 
-            tmp = Rbottom * \
-                cmath.exp(-2.0 * self.gamma[topLayer + 1] * self.layers[topLayer +
-                                                                        1].thickness * cmath.cos(self.ksi[topLayer + 1]))
+            tmp = (Rbottom * cmath.exp(-2.0 * self.gamma[topLayer + 1] *
+                                       self.layers[topLayer + 1].thickness *
+                                       cmath.cos(self.ksi[topLayer + 1])))
 
             res = (self.r[topLayer] + tmp) / (1.0 + self.r[topLayer] * tmp)
         return res
 
 
-class layersRnParallel(layersR):
+class LayersRnParallel(LayersR):
     def __init__(self, layers):
         self.layers = layers
 
@@ -143,8 +143,9 @@ class layersRnParallel(layersR):
             Rbottom = self. calcRBody(topLayer + 1, w)
 
             tmp = Rbottom * \
-                cmath.exp(-2.0 * self.gamma[topLayer + 1] * self.layers[topLayer +
-                                                                        1].thickness * cmath.cos(self.ksi[topLayer + 1]))
+                cmath.exp(-2.0 * self.gamma[topLayer + 1] *
+                          self.layers[topLayer + 1].thickness *
+                          cmath.cos(self.ksi[topLayer + 1]))
 
             res = (self.r[topLayer] + tmp) / (1.0 + self.r[topLayer] * tmp)
         return res
