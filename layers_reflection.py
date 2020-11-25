@@ -4,7 +4,7 @@
 import numpy
 import pylab
 
-from layers import LayersRnNormal, LayerParams
+from layers import LayersCalculatorNormal, LayerParams
 
 
 if __name__ == '__main__':
@@ -35,8 +35,8 @@ if __name__ == '__main__':
     layers_list = [layers]
 
     for layers in layers_list:
-        rn_normal = LayersRnNormal(layers)
-        r = [rn_normal.getR(w, 0.0) for w in w_list]
+        rn_normal = LayersCalculatorNormal(layers)
+        r = [rn_normal.getRE(w, 0.0) for w in w_list]
         r_abs = numpy.abs(r)
 
     pylab.plot(freq * 1e-9, r_abs)

@@ -16,55 +16,72 @@ class LayerParams:
         self.thickness = thickness
 
 
-class LayersR(metaclass=ABCMeta):
-    """Общие формулы для вычисления коэффициента отражения"""
+class LayersCalculator(metaclass=ABCMeta):
+    """Общие формулы для вычисления коэффициентов отражения"""
+
+    def getRE(self, w, angle=0.0):
+        """Рассчитать коэффициент отражения по полю E для многослойной среды"""
+        if w == 0.0:
+            return 0.0
+
+        self.ksi = self._calc_ksi(w, angle)
+        self.z = self._calc_z(w, self.ksi)
+        self.RE = self._calc_RE(self.z)
+        return self._calcREBody(0, w)
+
+    def getRH(self, w, angle=0.0):
+        """Рассчитать коэффициент отражения по полю H для многослойной среды"""
+        return self.getRE(w, angle)
 
     @abstractmethod
-    def _calcRBody(toplayer, w):
-        pass
+    def _calcREBody(toplayer, w):
+        """Расчет коэффициента отражения по полю E"""
 
     @abstractmethod
     def _calcZ(self, z, ksi):
         pass
 
     @abstractmethod
-    def _calcR2(self, z1, z2):
-        """Коэффициент отражения между двумя слоями"""
+    def _calcRE2(self, z1, z2):
+        """Коэффициент отражения по полю E между двумя слоями"""
 
-    def getR(self, w, angle=0.0):
-        """ Посчитаем все параметры для слоев"""
-        if w == 0.0:
-            return 0.0
+    def _calc_ksi(self, w, angle):
+        ksi = []
+        ksi.append(angle)
 
-        self._calc_ksi_gamma(w, angle)
-        return self._calcRBody(0, w)
+        prev_gamma = None
+        curr_gamma = None
 
-    def _calc_ksi_gamma(self, w, angle):
-        self.ksi = []
-        self.gamma = []
-        self.z = []			# Волновые сопротивления
-        self.r = []			# Коэффициенты отражения между слоями
+        for n in range(len(self.layers)):
+            layer = self.layers[n]
+            # Коэффициент распространения для текущего слоя
+            curr_gamma = self._getGamma(w, layer.eps, layer.mu, layer.sigma)
+
+            if n != 0:
+                ksi.append(cmath.asin(
+                    prev_gamma / curr_gamma * cmath.sin(ksi[n - 1])))
+
+            # Коэффициент распространения для предыдущего слоя
+            prev_gamma = curr_gamma
+
+        return ksi
+
+    def _calc_z(self, w, ksi):
+        z = []		# Волновые сопротивления
 
         c = 299792458.0
         wavelength = c / (w / (2.0 * math.pi))
 
-        self.ksi.append(angle)
-
         for n in range(len(self.layers)):
             layer = self.layers[n]
+            z.append(self._calcZ(
+                self._zwl(layer.eps, layer.sigma, wavelength), ksi[n]))
 
-            currgamma = self._getGamma(w, layer.eps, layer.mu, layer.sigma)
-            self.gamma.append(currgamma)
+        return z
 
-            if n != 0:
-                self.ksi.append(cmath.asin(
-                    self.gamma[n - 1] / currgamma * cmath.sin(self.ksi[n - 1])))
-
-            self.z.append(self._calcZ(
-                self._zwl(layer.eps, layer.sigma, wavelength), self.ksi[n]))
-
-            if n != 0:
-                self.r.append(self._calcR2(self.z[n - 1], self.z[n]))
+    def _calc_RE(self, z):
+        return [self._calcRE2(z[n - 1], z[n])
+                for n in range(1, len(self.layers))]
 
     def _getGamma(self, w, eps, mu, sigma):
         """Посчитать gamma = alpha + i * beta"""
@@ -90,63 +107,73 @@ class LayersR(metaclass=ABCMeta):
         else:
             a = 0.0
 
-        return(240.0 * math.pi) / (complex(b, -a))
+        return (240.0 * math.pi) / (complex(b, -a))
 
 
-class LayersRnNormal(LayersR):
+class LayersCalculatorNormal(LayersCalculator):
     def __init__(self, layers):
         self.layers = layers
 
     def _calcZ(self, z, ksi):
         return z / cmath.cos(ksi)
 
-    def _calcR2(self, z1, z2):
-        """Коэффициент отражения между двумя слоями"""
+    def _calcRE2(self, z1, z2):
+        """Коэффициент отражения по полю E между двумя слоями"""
         return (z2 - z1) / (z1 + z2)
 
-    def _calcRBody(self, topLayer, w):
-        """Расчет общего коэффициента отражения"""
+    def _calcREBody(self, topLayerNumber, w):
+        """Расчет общего коэффициента отражения по полю E"""
 
-        if len(self.layers) - topLayer == 2:
+        if len(self.layers) - topLayerNumber == 2:
             # Если два слоя
-            res = self._calcR2(self.z[topLayer], self.z[topLayer + 1])
+            res = self._calcRE2(
+                self.z[topLayerNumber], self.z[topLayerNumber + 1])
         else:
             # Коэффициент отражения от всех более нижних слоев
-            Rbottom = self._calcRBody(topLayer + 1, w)
+            Rbottom = self._calcREBody(topLayerNumber + 1, w)
+            bottomLayer = self.layers[topLayerNumber + 1]
+            gamma = self._getGamma(w, bottomLayer.eps,
+                                   bottomLayer.mu, bottomLayer.sigma)
 
-            tmp = (Rbottom * cmath.exp(-2.0 * self.gamma[topLayer + 1] *
-                                       self.layers[topLayer + 1].thickness *
-                                       cmath.cos(self.ksi[topLayer + 1])))
+            tmp = (Rbottom * cmath.exp(-2.0 * gamma *
+                                       self.layers[topLayerNumber + 1].thickness *
+                                       cmath.cos(self.ksi[topLayerNumber + 1])))
 
-            res = (self.r[topLayer] + tmp) / (1.0 + self.r[topLayer] * tmp)
+            res = ((self.RE[topLayerNumber] + tmp) /
+                   (1.0 + self.RE[topLayerNumber] * tmp))
         return res
 
 
-class LayersRnParallel(LayersR):
+class LayersCalculatorParallel(LayersCalculator):
     def __init__(self, layers):
         self.layers = layers
 
     def _calcZ(self, z, ksi):
         return z * cmath.cos(ksi)
 
-    def _calcR2(self, z1, z2):
-        """Коэффициент отражения между двумя слоями"""
+    def _calcRE2(self, z1, z2):
+        """Коэффициент отражения по полю E между двумя слоями"""
         return -(z2 - z1) / (z1 + z2)
 
-    def _calcRBody(self, topLayer, w):
-        """Расчет общего коэффициента отражения"""
+    def _calcREBody(self, topLayerNumber, w):
+        """Расчет общего коэффициента отражения по полю E"""
 
-        if len(self.layers) - topLayer == 2:
+        if len(self.layers) - topLayerNumber == 2:
             # Если два слоя
-            res = self._calcR2(self.z[topLayer], self.z[topLayer + 1])
+            res = self._calcRE2(
+                self.z[topLayerNumber], self.z[topLayerNumber + 1])
         else:
             # Коэффициент отражения от всех более нижних слоев
-            Rbottom = self._calcRBody(topLayer + 1, w)
+            Rbottom = self._calcREBody(topLayerNumber + 1, w)
+            bottomLayer = self.layers[topLayerNumber + 1]
+            gamma = self._getGamma(w, bottomLayer.eps,
+                                   bottomLayer.mu, bottomLayer.sigma)
 
-            tmp = Rbottom * \
-                cmath.exp(-2.0 * self.gamma[topLayer + 1] *
-                          self.layers[topLayer + 1].thickness *
-                          cmath.cos(self.ksi[topLayer + 1]))
+            tmp = (Rbottom *
+                   cmath.exp(-2.0 * gamma *
+                             self.layers[topLayerNumber + 1].thickness *
+                             cmath.cos(self.ksi[topLayerNumber + 1])))
 
-            res = (self.r[topLayer] + tmp) / (1.0 + self.r[topLayer] * tmp)
+            res = ((self.RE[topLayerNumber] + tmp) /
+                   (1.0 + self.RE[topLayerNumber] * tmp))
         return res
